@@ -1,0 +1,231 @@
+Select * from price_data;
+-- How many sales occurred during this time period? 
+SELECT COUNt(DISTINCT transaction_hash) AS total_sales
+FROM price_data;
+
+/* Return the top 5 most expensive transactions (by USD price) for this data set.
+Return the name, ETH price, and USD price, as well as the date.
+*/
+
+SELECT name, eth_price, usd_price, event_date
+FROM price_data
+ORDER BY usd_price DESC LIMIT 5;
+
+ 
+/* Return a table with a row for each transaction with an event column, 
+ a USD price column, and a moving average of USD price that averages the last 50 transactions. 
+
+ -- Analyzing Price Trends with Moving Averages
+ Expalnation: we use a moving average of the USD price. 
+ A moving average helps smooth out short-term fluctuations and highlight longer-term trends. 
+ */
+SELECT transaction_hash, round(usd_price,2) as usd_price,
+    round(AVG(usd_price) OVER(ORDER BY event_date ROWS BETWEEN 49 PRECEDING AND CURRENT ROW),2) as usd_moving_avg
+FROM price_data
+where usd_price <> 0;
+
+/* Return all the NFT names and their average sale price in USD. 
+Sort descending. Name the average column as average_price.
+
+Solution:
+To achieve this, you can use a SQL query with a GROUP BY clause to group the NFT names and then calculate the average
+sale price for each group.
+*/
+SELECT name AS NFT_name, round(AVG(usd_price),2) AS average_price
+FROM 
+	price_data
+GROUP BY `name`
+ORDER BY average_price DESC;
+
+/* Return each day of the week and the number of sales that occurred on that day of the week, 
+  as well as the average price in ETH. Order by the count of transactions in ascending order.
+
+Solution:
+To achieve this, you can use the DATEPART function in SQL Server to extract the day of the week from the event_date column.
+Then, you can use a combination of the COUNT, AVG, and GROUP BY functions
+to calculate the number of sales and the average price for each day of the week.
+*/
+
+SELECT
+    DAYOFWEEK(event_date) AS day_of_week,
+    COUNT(*) AS number_of_sales,
+    ROUND(AVG(eth_price), 2) AS average_price_in_eth
+FROM
+    price_data
+GROUP BY
+    DAYOFWEEK(event_date)
+ORDER BY
+    number_of_sales ASC;
+    
+Select Weekday(now()) as currentDateTime;
+
+SELECT
+	DAYOFWEEK(STR_TO_DATE(event_date, '%m/%d/%Y')) AS day_of_week,
+    COUNT(*) AS number_of_sales,
+    ROUND(AVG(eth_price), 2) AS average_price_in_eth
+FROM  price_data
+GROUP BY  day_of_week
+ORDER BY number_of_sales ASC;
+
+/*
+Construct a column that describes each sale and is called summary. 
+The sentence should include who sold the NFT name,
+who bought the NFT, who sold the NFT, the date, and what price it was sold for in USD rounded to the nearest thousandth.
+
+Solution: 
+We can construct the summary column using the CONCAT function in SQL Server to concatenate the different
+elements of the sale information into a single string.
+*/
+SELECT 
+    CONCAT(
+        name, ' was sold for $', ROUND(usd_price, -3), 
+        ' to ', buyer_address, ' from ', seller_address,  ' on ',  DATE_FORMAT(STR_TO_DATE(event_date, '%m/%d/%Y'), '%Y-%m-%d')
+    ) AS summary
+FROM 
+    price_data;
+
+/*
+Create a view called “1919_purchases” and contains any sales where “0x1919db36ca2fa2e15f9000fd9cdc2edcf863e685” was the buyer.
+*/
+
+CREATE VIEW purchases_1919 AS
+SELECT 
+    buyer_address, eth_price,usd_price, seller_address,event_date,token_id,
+    transaction_hash,name
+FROM 
+    price_data
+WHERE 
+    buyer_address = '0x1919db36ca2fa2e15f9000fd9cdc2edcf863e685';
+
+Select * from purchases_1919;
+
+-- create a histogram of ETH price ranges. Round to the nearest hundred value. 
+/*
+You can achieve this by using a union query to combine two separate queries, 
+one for the highest price and another for the lowest price, and adding a status column to each query.
+*/
+
+SELECT 
+    ROUND(eth_price, -2) AS bucket,
+    COUNT(*) AS count,
+    REPEAT('*', COUNT(*)) AS bar
+FROM
+    price_data
+GROUP BY ROUND(eth_price, -2)
+ORDER BY bucket;
+
+/* QUERY: 
+Return a unioned query that contains the highest price each NFT was bought for and a new column 
+called status saying “highest” with a query that has the lowest price each NFT was bought for
+and the status column saying “lowest”. The table should have a name column, a price column called price,
+and a status column. Order the result set by the name of the NFT, and the status, in ascending order. 
+*/
+SELECT name,MAX(usd_price) AS price, 'highest' AS status
+FROM price_data
+GROUP BY name
+UNION
+SELECT name, MIN(usd_price) AS price,'lowest' AS status
+FROM price_data
+GROUP BY  name
+ORDER BY name ASC,status ASC;
+
+/*
+This combined query provides a comprehensive view of the price range for each NFT, 
+allowing for a comparative analysis of their highest and lowest sale values. 
+Such insights are particularly useful for buyers and sellers in understanding the price volatility
+and market trends of specific NFTs.
+*/
+
+/*
+QUERY: What NFT sold the most each month / year combination? Also,
+what was the name and the price in USD? Order in chronological format.
+*/
+WITH MonthlySales AS (
+    SELECT 
+        YEAR(STR_TO_DATE(event_date, '%m/%d/%Y')) AS year,
+        MONTH(STR_TO_DATE(event_date, '%m/%d/%Y')) AS month,
+        name,
+        usd_price,
+        ROW_NUMBER() OVER(PARTITION BY YEAR(STR_TO_DATE(event_date, '%m/%d/%Y')), MONTH(STR_TO_DATE(event_date, '%m/%d/%Y')) ORDER BY usd_price DESC) AS sales_rank
+    FROM 
+        price_data
+)
+SELECT 
+    year, month,  name AS most_sold_NFT,usd_price AS price_in_USD
+FROM 
+    MonthlySales
+WHERE 
+    sales_rank = 1 
+ORDER BY 
+    year, month;
+/*
+This method offers a comprehensive perspective on the leading NFTs in terms of sales volume during various periods.
+It furnishes valuable insights into market preferences and trends, serving as essential data for market analysts, 
+investors, and NFT creators alike.
+*/
+
+ /*we're looking to avoid using str_format every time we need event_date. 
+ Instead, we want to convert this textual date into a date data type.
+To permanently change the data format in the main table, you would nee to use an update statement
+to modify the exiting date values. 
+*/
+
+update price_data set event_date = STR_TO_DATE(event_date, '%m/%d/%Y');
+
+-- can we verify
+
+Select weekday(event_date) as Week_day from price_data;
+
+-- QUERY-: Return the total volume (sum of all sales), 
+-- round to the nearest hundred on a monthly basis (month/year).
+
+SELECT 
+    CONCAT(YEAR(event_date), '-', LPAD(MONTH(event_date), 2, '0')) AS month_year,
+    ROUND(SUM(usd_price), -2) AS total_volume
+FROM price_data
+GROUP BY month_year
+ORDER BY month_year ASC;
+
+/* QUERY:
+
+Create an “estimated average value calculator” that has a representative price of the collection every day based off of these criteria:
+ - Exclude all daily outlier sales where the purchase price is below 10% of the daily average price
+ - Take the daily average of remaining transactions
+ a) First create a query that will be used as a subquery. Select the event date, the USD price,
+ and the average USD price for each day using a window function. Save it as a temporary table.
+ b) Use the table you created in Part A to filter out rows where the USD prices is below 10% of the daily average 
+ and return a new estimated value which is just the daily average of the filtered data.
+
+ */
+ 
+ -- Create a temporary table to store the results
+CREATE TEMPORARY TABLE TempTable AS
+SELECT 
+    event_date,
+    usd_price,
+    AVG(usd_price) OVER (PARTITION BY CAST(event_date AS DATE)) AS daily_avg_price
+FROM 
+    price_data;
+
+-- Query the temporary table
+SELECT * FROM TempTable;
+SELECT event_date, AVG(usd_price) AS estimated_value
+FROM TempTable
+WHERE usd_price > 0.9 * daily_avg_price
+GROUP BY event_date;
+
+-- QUERY : Give a complete list ordered by wallet profitability (whether people have made or lost money)
+SELECT 
+    walletID, SUM(cost_of_trade) as profitability
+FROM
+    (SELECT 
+        buyer_address AS walletID, (usd_price * -1) AS cost_of_trade 
+    FROM
+        price_data 
+     UNION ALL
+     SELECT 
+        seller_address AS walletID, usd_price AS cost_of_trade  
+    FROM
+        price_data) AS total_transactions
+GROUP BY walletID
+ORDER BY SUM(cost_of_trade);
